@@ -53,7 +53,7 @@ app.use(limiter)
 
 // Rate limiting más estricto para rutas de autenticación
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
+  windowMs:  1 * 60 * 1000, 
   max: 5, // límite de 5 intentos de login por IP
   message: {
     error: "Demasiados intentos de autenticación, intenta de nuevo en 15 minutos.",
