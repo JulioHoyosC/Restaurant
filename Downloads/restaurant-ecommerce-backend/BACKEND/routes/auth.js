@@ -2,7 +2,12 @@ const express = require("express")
 const jwt = require("jsonwebtoken")
 const User = require("../models/User")
 const { validateRegister, validateLogin } = require("../middleware/validation")
-const { auth } = require("../middleware/auth")
+const { auth, adminAuth } = require("../middlewares/auth");
+const { getAllUsers } = require("../controllers/userController");
+
+// Ruta protegida solo para admins
+router.get("/users", auth, adminAuth, getAllUsers);
+const { getAllOrders } = require("../controllers/orderController")
 
 const router = express.Router()
 
@@ -27,7 +32,9 @@ router.post("/register", validateRegister, async (req, res) => {
     })
 
     // Generar token JWT
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE })
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRE,
+    })
 
     res.status(201).json({
       message: "Usuario registrado exitosamente",
@@ -64,7 +71,9 @@ router.post("/login", validateLogin, async (req, res) => {
     }
 
     // Generar token JWT
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE })
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRE,
+    })
 
     res.json({
       message: "Login exitoso",
@@ -83,28 +92,16 @@ router.post("/login", validateLogin, async (req, res) => {
   }
 })
 
-// Obtener perfil del usuario autenticado
-router.get("/profile", auth, async (req, res) => {
-  try {
-    res.json({
-      user: {
-        id: req.user.id,
-        email: req.user.email,
-        firstName: req.user.first_name,
-        lastName: req.user.last_name,
-        phone: req.user.phone,
-        role: req.user.role,
-      },
-    })
-  } catch (error) {
-    console.error("Error para obneter perfil:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
+// Perfil del usuario autenticado
+router.get("/profile", auth, getProfile)
 
 // Verificar token
 router.get("/verify", auth, (req, res) => {
   res.json({ message: "Token válido", userId: req.user.id })
 })
+
+// Rutas protegidas por rol
+router.get("/users", auth, adminAuth, getAllUsers);
+router.get("/orders", auth, staffAuth, getAllOrders)
 
 module.exports = router

@@ -1,54 +1,28 @@
-const jwt = require("jsonwebtoken")
-const User = require("../models/User")
+const jwt = require("jsonwebtoken");
 
-const auth = async (req, res, next) => {
-  try {
-    const token = req.header("Authorization")?.replace("Bearer ", "")
+const auth = (req, res, next) => {
+  const token = req.header("Authorization");
 
-    if (!token) {
-      return res.status(401).json({ message: "Token de acceso requerido" })
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    const user = await User.findById(decoded.userId)
-
-    if (!user) {
-      return res.status(401).json({ message: "Token inválido" })
-    }
-
-    req.user = user
-    next()
-  } catch (error) {
-    res.status(401).json({ message: "Token inválido" })
+  if (!token) {
+    return res.status(401).json({ message: "Token requerido" });
   }
-}
 
-const adminAuth = async (req, res, next) => {
   try {
-    await auth(req, res, () => {})
-
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ message: "Acceso denegado. Se requieren permisos de administrador" })
-    }
-
-    next()
-  } catch (error) {
-    res.status(401).json({ message: "Token inválido" })
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(400).json({ message: "Token inválido" });
   }
-}
+};
 
-const staffAuth = async (req, res, next) => {
-  try {
-    await auth(req, res, () => {})
-
-    if (!["admin", "staff"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Acceso denegado. Se requieren permisos de staff" })
-    }
-
-    next()
-  } catch (error) {
-    res.status(401).json({ message: "Token inválido" })
+const adminAuth = (req, res, next) => {
+  if (req.user && req.user.role === "admin") {
+    next();
+  } else {
+    res.status(403).json({ message: "Acceso denegado. No sos admin." });
   }
-}
+};
 
-module.exports = { auth, adminAuth, staffAuth }
+module.exports = { auth, adminAuth };
+
