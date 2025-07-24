@@ -1,0 +1,38 @@
+{
+  "name": "restaurant-ecommerce-backend",
+  "version": "1.0.0",
+  "description": "Backend completo para e-commerce de restaurante",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "app": "node app.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.4",
+    "dotenv": "^16.3.1",
+    "morgan": "^1.10.0",
+    "compression": "^1.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "eslint": "^8.55.0"
+  },
+  "keywords": ["restaurant", "ecommerce", "backend", "postgresql", "nodejs"],
+  "author": "Tu Nombre",
+  "license": "MIT"
+}

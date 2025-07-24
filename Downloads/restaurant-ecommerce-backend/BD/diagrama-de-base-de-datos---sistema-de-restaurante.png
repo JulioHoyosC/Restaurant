@@ -1,0 +1,110 @@
+erDiagram
+    users {
+        UUID id PK
+        VARCHAR email UK
+        VARCHAR password
+        VARCHAR first_name
+        VARCHAR last_name
+        VARCHAR phone
+        VARCHAR role
+        BOOLEAN is_active
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+    
+    categories {
+        UUID id PK
+        VARCHAR name
+        TEXT description
+        VARCHAR image_url
+        BOOLEAN is_active
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+    
+    products {
+        UUID id PK
+        VARCHAR name
+        TEXT description
+        DECIMAL price
+        UUID category_id FK
+        VARCHAR image_url
+        TEXT[] ingredients
+        TEXT[] allergens
+        BOOLEAN is_vegetarian
+        BOOLEAN is_vegan
+        BOOLEAN is_gluten_free
+        INTEGER preparation_time
+        INTEGER calories
+        BOOLEAN is_available
+        INTEGER stock_quantity
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+    
+    tables {
+        UUID id PK
+        INTEGER table_number UK
+        INTEGER capacity
+        VARCHAR location
+        BOOLEAN is_available
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+    
+    orders {
+        UUID id PK
+        UUID user_id FK
+        UUID table_id FK
+        VARCHAR order_number UK
+        VARCHAR status
+        VARCHAR order_type
+        DECIMAL subtotal
+        DECIMAL tax_amount
+        DECIMAL discount_amount
+        DECIMAL total_amount
+        VARCHAR payment_status
+        VARCHAR payment_method
+        TEXT delivery_address
+        TEXT special_instructions
+        TIMESTAMP estimated_delivery_time
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+    
+    order_items {
+        UUID id PK
+        UUID order_id FK
+        UUID product_id FK
+        INTEGER quantity
+        DECIMAL unit_price
+        DECIMAL total_price
+        TEXT special_requests
+        TIMESTAMP created_at
+    }
+    
+    reservations {
+        UUID id PK
+        UUID user_id FK
+        UUID table_id FK
+        DATE reservation_date
+        TIME reservation_time
+        INTEGER party_size
+        VARCHAR status
+        TEXT special_requests
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+
+    %% Relaciones
+    users ||--o{ orders : "hace"
+    users ||--o{ reservations : "realiza"
+    
+    categories ||--o{ products : "contiene"
+    
+    tables ||--o{ orders : "asignada_a"
+    tables ||--o{ reservations : "reservada_para"
+    
+    orders ||--o{ order_items : "incluye"
+    
+    products ||--o{ order_items : "forma_parte_de"

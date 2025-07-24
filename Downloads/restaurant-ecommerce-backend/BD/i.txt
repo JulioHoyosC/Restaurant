@@ -1,0 +1,33 @@
+## Tipos de Relaciones:
+
+### *Uno a Muchos (1:N)*
+
+1.⁠ ⁠*users → orders*: Un usuario puede tener múltiples pedidos
+2.⁠ ⁠*users → reservations*: Un usuario puede hacer múltiples reservas
+3.⁠ ⁠*categories → products*: Una categoría puede tener múltiples productos
+4.⁠ ⁠*tables → orders*: Una mesa puede tener múltiples pedidos (en diferentes momentos)
+5.⁠ ⁠*tables → reservations*: Una mesa puede tener múltiples reservas
+6.⁠ ⁠*orders → order_items*: Un pedido puede tener múltiples items
+7.⁠ ⁠*products → order_items*: Un producto puede estar en múltiples items de pedido
+
+
+### *Características de las Relaciones:*
+
+•⁠  ⁠*users ↔️ orders*: Relación obligatoria (CASCADE en DELETE)
+•⁠  ⁠*users ↔️ reservations*: Relación obligatoria (CASCADE en DELETE)
+•⁠  ⁠*categories ↔️ products*: Relación opcional (SET NULL en DELETE)
+•⁠  ⁠*tables ↔️ orders*: Relación opcional (SET NULL en DELETE)
+•⁠  ⁠*tables ↔️ reservations*: Relación obligatoria (CASCADE en DELETE)
+•⁠  ⁠*orders ↔️ order_items*: Relación obligatoria (CASCADE en DELETE)
+•⁠  ⁠*products ↔️ order_items*: Relación obligatoria (CASCADE en DELETE)
+
+
+### *Entidades Principales:*
+
+•⁠  ⁠*users*: Gestión de usuarios del sistema
+•⁠  ⁠*categories*: Categorización de productos del menú
+•⁠  ⁠*products*: Productos/platos del restaurante
+•⁠  ⁠*tables*: Mesas del restaurante
+•⁠  ⁠*orders*: Pedidos realizados
+•⁠  ⁠*order_items*: Detalle de items en cada pedido
+•⁠  ⁠*reservations*: Reservas de mesas
