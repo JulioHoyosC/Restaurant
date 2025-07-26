@@ -2,6 +2,8 @@ const db = require("../config/database")
 
 class Order {
   static async create(orderData) {
+    console.log("🔍 DEBUG - Order.create llamado con:", JSON.stringify(orderData, null, 2))
+
     const {
       userId,
       tableId,
@@ -30,6 +32,19 @@ class Order {
         RETURNING *
       `
 
+      console.log("🔍 DEBUG - Ejecutando query de orden con parámetros:", [
+        userId,
+        tableId,
+        orderNumber,
+        orderType,
+        subtotal,
+        taxAmount,
+        discountAmount,
+        totalAmount,
+        deliveryAddress,
+        specialInstructions,
+      ])
+
       const orderResult = await client.query(orderQuery, [
         userId,
         tableId,
@@ -44,9 +59,12 @@ class Order {
       ])
 
       const order = orderResult.rows[0]
+      console.log("✅ DEBUG - Orden creada:", order)
 
       // Crear los items de la orden
       for (const item of items) {
+        console.log("🔍 DEBUG - Insertando item:", item)
+
         const itemQuery = `
           INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price, special_requests)
           VALUES ($1, $2, $3, $4, $5, $6)
@@ -80,7 +98,6 @@ class Order {
       LEFT JOIN tables t ON o.table_id = t.id
       WHERE o.id = $1
     `
-
     const result = await db.query(query, [id])
     if (!result.rows[0]) return null
 
@@ -93,7 +110,6 @@ class Order {
       JOIN products p ON oi.product_id = p.id
       WHERE oi.order_id = $1
     `
-
     const itemsResult = await db.query(itemsQuery, [id])
     order.items = itemsResult.rows
 
@@ -109,7 +125,6 @@ class Order {
       ORDER BY o.created_at DESC
       LIMIT $2 OFFSET $3
     `
-
     const result = await db.query(query, [userId, limit, offset])
     return result.rows
   }
@@ -122,7 +137,6 @@ class Order {
       LEFT JOIN tables t ON o.table_id = t.id
       WHERE 1=1
     `
-
     const params = []
     let paramCount = 0
 
@@ -150,6 +164,13 @@ class Order {
       params.push(filters.dateTo)
     }
 
+    // CORRECCIÓN: Agregar filtro por customerId si existe
+    if (filters.customerId) {
+      paramCount++
+      query += ` AND o.user_id = $${paramCount}`
+      params.push(filters.customerId)
+    }
+
     query += ` ORDER BY o.created_at DESC`
 
     if (filters.limit) {
@@ -175,7 +196,6 @@ class Order {
       WHERE id = $2
       RETURNING *
     `
-
     const result = await db.query(query, [status, id])
     return result.rows[0]
   }
@@ -187,7 +207,6 @@ class Order {
       WHERE id = $3
       RETURNING *
     `
-
     const result = await db.query(query, [paymentStatus, paymentMethod, id])
     return result.rows[0]
   }
@@ -213,7 +232,6 @@ class Order {
         WHERE id = $1
         RETURNING *
       `
-
       const result = await client.query(orderQuery, [id])
       return result.rows[0]
     })

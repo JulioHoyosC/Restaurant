@@ -1,213 +1,211 @@
 const express = require("express")
 const Order = require("../models/Order")
-const Product = require("../models/Product")
-const { auth, staffAuth } = require("../middleware/auth")
-const { validateOrder } = require("../middleware/validation")
+const { auth, adminAuth, staffAuth } = require("../middleware/auth")
+const { body, validationResult } = require("express-validator")
 
 const router = express.Router()
 
-// Crear nueva orden
-router.post("/", auth, validateOrder, async (req, res) => {
-  try {
-    const { items, tableId, orderType, deliveryAddress, specialInstructions } = req.body
-
-    // Validar productos y calcular totales
-    let subtotal = 0
-    const validatedItems = []
-
-    for (const item of items) {
-      const product = await Product.findById(item.productId)
-      if (!product) {
-        return res.status(400).json({
-          message: `Producto no encontrado: ${item.productId}`,
-        })
-      }
-
-      if (!product.is_available) {
-        return res.status(400).json({
-          message: `Producto no disponible: ${product.name}`,
-        })
-      }
-
-      if (product.stock_quantity < item.quantity) {
-        return res.status(400).json({
-          message: `Stock insuficiente para: ${product.name}`,
-        })
-      }
-
-      const totalPrice = product.price * item.quantity
-      subtotal += totalPrice
-
-      validatedItems.push({
-        productId: item.productId,
-        quantity: item.quantity,
-        unitPrice: product.price,
-        totalPrice,
-        specialRequests: item.specialRequests,
+// Validación para UUIDs
+const validateOrderUUID = [
+  body("customerName").trim().isLength({ min: 2 }).withMessage("Nombre requerido"),
+  body("items").isArray({ min: 1 }).withMessage("Se requiere al menos un item"),
+  body("items.*.productId").isUUID().withMessage("ID de producto debe ser un UUID válido"),
+  body("items.*.quantity").isInt({ min: 1 }).withMessage("Cantidad debe ser mayor a 0"),
+  body("items.*.price").isFloat({ min: 0 }).withMessage("Precio debe ser mayor o igual a 0"),
+  body("orderType").isIn(["dine_in", "takeaway", "delivery"]).withMessage("Tipo de orden inválido"),
+  body("tableId").optional().isUUID().withMessage("ID de mesa debe ser un UUID válido"),
+  (req, res, next) => {
+    const errors = validationResult(req)
+    if (!errors.isEmpty()) {
+      console.log("❌ Errores de validación:", errors.array())
+      return res.status(400).json({
+        success: false,
+        message: "Datos de orden inválidos",
+        errors: errors.array(),
       })
     }
+    next()
+  },
+]
 
-    // Calcular impuestos y total
-    const taxAmount = subtotal * 0.1 // 10% de impuesto
-    const discountAmount = 0 // Implementar lógica de descuentos si es necesario
-    const totalAmount = subtotal + taxAmount - discountAmount
-
-    const orderData = {
-      userId: req.user.id,
-      tableId,
-      orderType,
-      items: validatedItems,
-      subtotal,
-      taxAmount,
-      discountAmount,
-      totalAmount,
-      deliveryAddress,
-      specialInstructions,
-    }
-
-    const order = await Order.create(orderData)
-
-    res.status(201).json({
-      message: "Orden creada exitosamente",
-      order,
-    })
-  } catch (error) {
-    console.error("Error creando orden:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Obtener órdenes del usuario autenticado
-router.get("/my-orders", auth, async (req, res) => {
+// GET /api/orders - Obtener órdenes
+router.get("/", auth, async (req, res) => {
   try {
-    const limit = Number.parseInt(req.query.limit) || 20
-    const offset = Number.parseInt(req.query.offset) || 0
-
-    const orders = await Order.getByUserId(req.user.id, limit, offset)
-    res.json({ orders })
-  } catch (error) {
-    console.error("Error obteniendo órdenes del usuario:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Obtener todas las órdenes (solo staff/admin)
-router.get("/", staffAuth, async (req, res) => {
-  try {
+    console.log("🔍 DEBUG - Obteniendo órdenes para usuario:", req.user)
     const filters = {
-      status: req.query.status,
-      orderType: req.query.orderType,
-      dateFrom: req.query.dateFrom,
-      dateTo: req.query.dateTo,
       limit: Number.parseInt(req.query.limit) || 50,
       offset: Number.parseInt(req.query.offset) || 0,
     }
 
+    // Si no es staff/admin, solo sus órdenes
+    if (!["admin", "staff"].includes(req.user.role)) {
+      filters.customerId = req.user.id // UUID, no convertir
+    }
+
     const orders = await Order.getAll(filters)
-    res.json({ orders })
+    res.json({
+      success: true,
+      message: "Órdenes obtenidas exitosamente",
+      orders: orders,
+      filters: filters,
+    })
   } catch (error) {
-    console.error("Error obteniendo órdenes:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
+    console.error("❌ Error obteniendo órdenes:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
+      error: error.message,
+    })
   }
 })
 
-// Obtener orden por ID
+// POST /api/orders - Crear orden
+router.post("/", auth, validateOrderUUID, async (req, res) => {
+  try {
+    console.log("🔍 DEBUG - Creando orden:", req.body)
+    console.log("🔍 DEBUG - Usuario:", req.user)
+
+    const {
+      items,
+      tableId,
+      customerName,
+      customerPhone,
+      customerEmail,
+      orderType,
+      specialInstructions,
+      deliveryAddress,
+    } = req.body
+
+    // VALIDACIÓN ADICIONAL: Verificar que todos los precios sean válidos
+    for (const item of items) {
+      const price = Number.parseFloat(item.price)
+      if (Number.isNaN(price) || price <= 0) {
+        console.log("❌ Precio inválido detectado:", item)
+        return res.status(400).json({
+          success: false,
+          message: `Precio inválido para producto ${item.productId}: ${item.price}`,
+          invalidItem: item,
+        })
+      }
+    }
+
+    // Calcular totales con validación
+    let subtotal = 0
+    for (const item of items) {
+      const itemPrice = Number.parseFloat(item.price)
+      const itemQuantity = Number.parseInt(item.quantity)
+      const itemSubtotal = itemPrice * itemQuantity
+      console.log(`💰 Item: ${item.productId} - $${itemPrice} x ${itemQuantity} = $${itemSubtotal}`)
+      subtotal += itemSubtotal
+    }
+
+    const taxAmount = subtotal * 0.18
+    const discountAmount = 0
+    const totalAmount = subtotal + taxAmount - discountAmount
+
+    console.log("💰 DEBUG - Totales calculados:", { subtotal, taxAmount, discountAmount, totalAmount })
+
+    // CORRECCIÓN: NO convertir UUIDs a enteros
+    const orderData = {
+      userId: req.user.id, // UUID - NO convertir
+      tableId: tableId || null, // UUID - NO convertir
+      orderType: orderType,
+      subtotal: subtotal,
+      taxAmount: taxAmount,
+      discountAmount: discountAmount,
+      totalAmount: totalAmount,
+      deliveryAddress: deliveryAddress || null,
+      specialInstructions: specialInstructions || null,
+      items: items.map((item) => {
+        const unitPrice = Number.parseFloat(item.price)
+        const quantity = Number.parseInt(item.quantity)
+        const totalPrice = unitPrice * quantity
+
+        console.log(
+          `🔍 DEBUG - Item procesado: productId=${item.productId}, unitPrice=${unitPrice}, quantity=${quantity}, totalPrice=${totalPrice}`,
+        )
+
+        return {
+          productId: item.productId, // UUID - NO convertir
+          quantity: quantity,
+          unitPrice: unitPrice,
+          totalPrice: totalPrice,
+          specialRequests: item.specialInstructions || null,
+        }
+      }),
+    }
+
+    console.log("🔍 DEBUG - Datos de orden procesados:", JSON.stringify(orderData, null, 2))
+
+    const order = await Order.create(orderData)
+    console.log("✅ DEBUG - Orden creada exitosamente:", order.id)
+
+    res.status(201).json({
+      success: true,
+      message: "Orden creada exitosamente",
+      order: {
+        id: order.id,
+        orderNumber: order.order_number,
+        status: order.status || "pendiente",
+        totalAmount: Number.parseFloat(order.total_amount),
+        createdAt: order.created_at,
+      },
+      debug: {
+        subtotal: subtotal.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        discountAmount: discountAmount.toFixed(2),
+        totalAmount: totalAmount.toFixed(2),
+        itemsProcessed: items.length,
+      },
+    })
+  } catch (error) {
+    console.error("❌ Error creando orden:", error)
+    console.error("❌ Stack completo:", error.stack)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    })
+  }
+})
+
+// GET /api/orders/:id - Obtener orden por ID
 router.get("/:id", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id)
+    console.log("🔍 DEBUG - Obteniendo orden:", req.params.id)
+
+    // UUID - NO convertir a entero
+    const orderId = req.params.id
+    const order = await Order.findById(orderId)
+
     if (!order) {
-      return res.status(404).json({ message: "Orden no encontrada" })
-    }
-
-    // Verificar que el usuario puede ver esta orden
-    if (req.user.role === "customer" && order.user_id !== req.user.id) {
-      return res.status(403).json({ message: "Acceso denegado" })
-    }
-
-    res.json({ order })
-  } catch (error) {
-    console.error("Error obteniendo orden:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Actualizar estado de orden (solo staff/admin)
-router.patch("/:id/status", staffAuth, async (req, res) => {
-  try {
-    const { status } = req.body
-    const validStatuses = ["pending", "confirmed", "preparing", "ready", "delivered", "cancelled"]
-
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: "Estado inválido" })
-    }
-
-    const order = await Order.updateStatus(req.params.id, status)
-    if (!order) {
-      return res.status(404).json({ message: "Orden no encontrada" })
-    }
-
-    res.json({
-      message: "Estado de orden actualizado exitosamente",
-      order,
-    })
-  } catch (error) {
-    console.error("Error actualizando estado de orden:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Actualizar estado de pago (solo staff/admin)
-router.patch("/:id/payment", staffAuth, async (req, res) => {
-  try {
-    const { paymentStatus, paymentMethod } = req.body
-    const validPaymentStatuses = ["pending", "paid", "failed", "refunded"]
-
-    if (!validPaymentStatuses.includes(paymentStatus)) {
-      return res.status(400).json({ message: "Estado de pago inválido" })
-    }
-
-    const order = await Order.updatePaymentStatus(req.params.id, paymentStatus, paymentMethod)
-    if (!order) {
-      return res.status(404).json({ message: "Orden no encontrada" })
-    }
-
-    res.json({
-      message: "Estado de pago actualizado exitosamente",
-      order,
-    })
-  } catch (error) {
-    console.error("Error actualizando estado de pago:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Cancelar orden
-router.patch("/:id/cancel", auth, async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id)
-    if (!order) {
-      return res.status(404).json({ message: "Orden no encontrada" })
+      return res.status(404).json({
+        success: false,
+        message: "Orden no encontrada",
+      })
     }
 
     // Verificar permisos
-    if (req.user.role === "customer" && order.user_id !== req.user.id) {
-      return res.status(403).json({ message: "Acceso denegado" })
+    if (!["admin", "staff"].includes(req.user.role) && order.user_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "Acceso denegado",
+      })
     }
-
-    // Verificar que la orden se puede cancelar
-    if (["delivered", "cancelled"].includes(order.status)) {
-      return res.status(400).json({ message: "No se puede cancelar esta orden" })
-    }
-
-    const cancelledOrder = await Order.cancel(req.params.id)
 
     res.json({
-      message: "Orden cancelada exitosamente",
-      order: cancelledOrder,
+      success: true,
+      message: "Orden obtenida exitosamente",
+      order: order,
     })
   } catch (error) {
-    console.error("Error cancelando orden:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
+    console.error("❌ Error obteniendo orden:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
+      error: error.message,
+    })
   }
 })
 

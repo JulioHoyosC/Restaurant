@@ -1,182 +1,120 @@
 const express = require("express")
 const db = require("../config/database")
-const { auth, staffAuth } = require("../middleware/auth")
-const { body, validationResult } = require("express-validator")
-
+const { auth, adminAuth, staffAuth } = require("../middleware/auth")
+const { body, param, validationResult } = require("express-validator")
 const router = express.Router()
 
-// Validación para mesas
-const validateTable = [
+// Validación SIMPLIFICADA
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    console.log("❌ Errores de validación:", errors.array())
+    return res.status(400).json({
+      success: false,
+      message: "Errores de validación",
+      errors: errors.array(),
+    })
+  }
+  next()
+}
+
+const validateTableSimple = [
   body("tableNumber").isInt({ min: 1 }).withMessage("Número de mesa debe ser un entero positivo"),
-  body("capacity").isInt({ min: 1 }).withMessage("Capacidad debe ser un entero positivo"),
-  body("location").optional().trim().isLength({ max: 100 }).withMessage("Ubicación no puede exceder 100 caracteres"),
-  (req, res, next) => {
-    const errors = validationResult(req)
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() })
-    }
-    next()
-  },
+  body("capacity").isInt({ min: 1, max: 20 }).withMessage("Capacidad debe ser entre 1 y 20"),
+  body("location").optional().trim().isLength({ max: 100 }).withMessage("Ubicación muy larga"),
+  handleValidationErrors,
 ]
 
-// Obtener todas las mesas disponibles (público)
-router.get("/available", async (req, res) => {
+// GET /api/tables - Obtener todas las mesas
+router.get("/", auth, staffAuth, async (req, res) => {
   try {
+    console.log("🔍 DEBUG - Obteniendo mesas para usuario:", req.user.role)
+
     const query = `
-      SELECT * FROM tables 
-      WHERE is_available = true 
+      SELECT id, table_number, capacity, location, description, is_available, created_at, updated_at
+      FROM tables 
       ORDER BY table_number
     `
+
     const result = await db.query(query)
-    res.json({ tables: result.rows })
-  } catch (error) {
-    console.error("Error obteniendo mesas disponibles:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
 
-// Obtener todas las mesas (solo staff)
-router.get("/", staffAuth, async (req, res) => {
-  try {
-    const query = "SELECT * FROM tables ORDER BY table_number"
-    const result = await db.query(query)
-    res.json({ tables: result.rows })
-  } catch (error) {
-    console.error("Error obteniendo mesas:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Crear mesa (solo staff)
-router.post("/", staffAuth, validateTable, async (req, res) => {
-  try {
-    const { tableNumber, capacity, location } = req.body
-
-    const query = `
-      INSERT INTO tables (table_number, capacity, location)
-      VALUES ($1, $2, $3)
-      RETURNING *
-    `
-
-    const result = await db.query(query, [tableNumber, capacity, location])
-
-    res.status(201).json({
-      message: "Mesa creada exitosamente",
-      table: result.rows[0],
-    })
-  } catch (error) {
-    if (error.code === "23505") {
-      // Unique violation
-      return res.status(400).json({ message: "El número de mesa ya existe" })
-    }
-    console.error("Error creando mesa:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
-
-// Actualizar mesa (solo staff)
-router.put("/:id", staffAuth, validateTable, async (req, res) => {
-  try {
-    const { tableNumber, capacity, location, isAvailable } = req.body
-
-    const query = `
-      UPDATE tables 
-      SET table_number = $1, capacity = $2, location = $3, is_available = $4, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
-      RETURNING *
-    `
-
-    const result = await db.query(query, [tableNumber, capacity, location, isAvailable !== false, req.params.id])
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Mesa no encontrada" })
-    }
+    console.log("✅ DEBUG - Mesas encontradas:", result.rows.length)
 
     res.json({
-      message: "Mesa actualizada exitosamente",
-      table: result.rows[0],
+      success: true,
+      message: "Mesas obtenidas exitosamente",
+      tables: result.rows.map((table) => ({
+        id: table.id,
+        tableNumber: table.table_number,
+        capacity: table.capacity,
+        location: table.location,
+        description: table.description,
+        isAvailable: table.is_available,
+        createdAt: table.created_at,
+        updatedAt: table.updated_at,
+      })),
     })
   } catch (error) {
-    if (error.code === "23505") {
-      // Unique violation
-      return res.status(400).json({ message: "El número de mesa ya existe" })
-    }
-    console.error("Error actualizando mesa:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
+    console.error("❌ Error obteniendo mesas:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
+      error: error.message,
+    })
   }
 })
 
-// Eliminar mesa (solo staff)
-router.delete("/:id", staffAuth, async (req, res) => {
+// POST /api/tables - Crear mesa
+router.post("/", auth, staffAuth, validateTableSimple, async (req, res) => {
   try {
-    const query = "DELETE FROM tables WHERE id = $1"
-    await db.query(query, [req.params.id])
-    res.json({ message: "Mesa eliminada exitosamente" })
-  } catch (error) {
-    console.error("Error eliminando mesa:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
-  }
-})
+    console.log("🔍 DEBUG - Creando mesa:", req.body)
+    console.log("🔍 DEBUG - Usuario:", req.user.role)
 
-// Hacer reserva
-router.post("/:id/reserve", auth, async (req, res) => {
-  try {
-    const { reservationDate, reservationTime, partySize, specialRequests } = req.body
+    const { tableNumber, capacity, location, description, isAvailable = true } = req.body
 
-    if (!reservationDate || !reservationTime || !partySize) {
-      return res.status(400).json({ message: "Fecha, hora y tamaño del grupo son requeridos" })
+    // Verificar que no existe
+    const existingTable = await db.query("SELECT id FROM tables WHERE table_number = $1", [tableNumber])
+
+    if (existingTable.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Ya existe una mesa con ese número",
+      })
     }
 
-    // Verificar que la mesa existe y está disponible
-    const tableQuery = "SELECT * FROM tables WHERE id = $1 AND is_available = true"
-    const tableResult = await db.query(tableQuery, [req.params.id])
+    console.log("🔍 DEBUG - Insertando mesa...")
 
-    if (tableResult.rows.length === 0) {
-      return res.status(404).json({ message: "Mesa no encontrada o no disponible" })
-    }
-
-    const table = tableResult.rows[0]
-
-    if (partySize > table.capacity) {
-      return res.status(400).json({ message: "El tamaño del grupo excede la capacidad de la mesa" })
-    }
-
-    // Verificar disponibilidad en la fecha y hora solicitada
-    const conflictQuery = `
-      SELECT * FROM reservations 
-      WHERE table_id = $1 AND reservation_date = $2 AND reservation_time = $3 
-      AND status IN ('pending', 'confirmed')
-    `
-
-    const conflictResult = await db.query(conflictQuery, [req.params.id, reservationDate, reservationTime])
-
-    if (conflictResult.rows.length > 0) {
-      return res.status(400).json({ message: "Mesa no disponible en esa fecha y hora" })
-    }
-
-    // Crear reserva
-    const reservationQuery = `
-      INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, special_requests)
-      VALUES ($1, $2, $3, $4, $5, $6)
+    const query = `
+      INSERT INTO tables (id, table_number, capacity, location, description, is_available)
+      VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5)
       RETURNING *
     `
 
-    const reservationResult = await db.query(reservationQuery, [
-      req.user.id,
-      req.params.id,
-      reservationDate,
-      reservationTime,
-      partySize,
-      specialRequests,
-    ])
+    const result = await db.query(query, [tableNumber, capacity, location || null, description || null, isAvailable])
+
+    console.log("✅ DEBUG - Mesa creada:", result.rows[0])
 
     res.status(201).json({
-      message: "Reserva creada exitosamente",
-      reservation: reservationResult.rows[0],
+      success: true,
+      message: "Mesa creada exitosamente",
+      table: {
+        id: result.rows[0].id,
+        tableNumber: result.rows[0].table_number,
+        capacity: result.rows[0].capacity,
+        location: result.rows[0].location,
+        description: result.rows[0].description,
+        isAvailable: result.rows[0].is_available,
+        createdAt: result.rows[0].created_at,
+      },
     })
   } catch (error) {
-    console.error("Error creando reserva:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
+    console.error("❌ Error creando mesa:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    })
   }
 })
 
